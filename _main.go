@@ -11,6 +11,8 @@ import (
 	"github.com/uptrace/bun/driver/pgdriver"
 )
 
+// いろいろやったけどボツになった残骸
+
 // @see https://future-architect.github.io/articles/20210727a/
 
 // var _ pgx.CopyFromSource = &InputRows{}
