@@ -16,3 +16,5 @@ psql:
 	docker exec -it $(CONTAINER_NAME) psql -U postgres
 stop:
 	docker stop $(CONTAINER_NAME)
+container:
+	@docker-compose up -d

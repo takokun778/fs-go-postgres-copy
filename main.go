@@ -3,37 +3,80 @@ package main
 import (
 	"context"
 	"database/sql"
+	"io"
 	"log"
-	"os"
 
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/dialect/pgdialect"
 	"github.com/uptrace/bun/driver/pgdriver"
 )
 
+// db1 -> db2 へ ストリーム を使って移動
+
 func main() {
-	f, err := os.Create("./output.csv")
-	if err != nil {
-		log.Fatalln(err.Error())
-	}
+	pr, pw := io.Pipe()
 
-	defer f.Close()
-
-	dsn := "postgres://postgres:@localhost:15432/postgres?sslmode=disable"
 	// dsn := "unix://user:pass@dbname/var/run/postgresql/.s.PGSQL.5432"
-	sqldb := sql.OpenDB(pgdriver.NewConnector(pgdriver.WithDSN(dsn)))
+	dsn1 := "postgres://postgres:@localhost:15432/postgres?sslmode=disable"
+	sqldb1 := sql.OpenDB(pgdriver.NewConnector(pgdriver.WithDSN(dsn1)))
 
-	db := bun.NewDB(sqldb, pgdialect.New())
+	db1 := bun.NewDB(sqldb1, pgdialect.New())
 
-	conn, err := db.Conn(context.Background())
+	conn1, err := db1.Conn(context.Background())
 	if err != nil {
 		log.Fatalln(err.Error())
 	}
 
-	defer conn.Close()
+	ddl := `
+		CREATE TABLE IF NOT EXISTS sample (
+			a text,
+			b text,
+			c text,
+			d text,
+			e text,
+			f text,
+			g text
+		)
+		`
 
-	_, err = pgdriver.CopyTo(context.Background(), conn, f, "COPY sample TO STDOUT DELIMITER ',' CSV HEADER")
+	_, err = conn1.QueryContext(context.Background(), ddl)
 	if err != nil {
 		log.Fatalln(err.Error())
+	}
+
+	for i := 0; i < 5; i++ {
+		_, err = conn1.QueryContext(context.Background(), "INSERT INTO sample VALUES ('a', 'b', 'c', 'd', 'e', 'f', 'g')")
+		if err != nil {
+			log.Fatalln(err.Error())
+		}
+	}
+
+	go func() {
+		_, err = pgdriver.CopyTo(context.Background(), conn1, pw, "COPY sample TO STDOUT")
+		if err != nil {
+			log.Fatalln(err.Error())
+		}
+		pw.Close()
+		conn1.Close()
+	}()
+
+	dsn2 := "postgres://postgres:@localhost:25432/postgres?sslmode=disable"
+	sqldb2 := sql.OpenDB(pgdriver.NewConnector(pgdriver.WithDSN(dsn2)))
+
+	db2 := bun.NewDB(sqldb2, pgdialect.New())
+
+	conn2, err := db2.Conn(context.Background())
+	if err != nil {
+		log.Fatalln(err.Error())
+	}
+
+	_, err = conn2.QueryContext(context.Background(), ddl)
+	if err != nil {
+		log.Fatalln(err.Error())
+	}
+
+	_, err = pgdriver.CopyFrom(context.Background(), conn2, pr, "COPY sample FROM STDIN")
+	if err != nil {
+		panic(err)
 	}
 }
